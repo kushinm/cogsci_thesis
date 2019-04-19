@@ -1,0 +1,278 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(dplyr)
+library(varhandle)
+
+### You first need to have lesion_sketch_data in the csv directory under results
+### if you don't have this csv yet, I recommend going through semantic_parts_lesion.ipynb
+### and generating it yourself!
+df<- read.csv(paste(getwd(),'/results/csv/lesion_sketch_data.csv', sep=""))
+```
+
+
+```{r}
+
+df_sub<- df[c('X','arc_length','category','condition','label','lesion_id','sketch_id','target','c_score')]
+df_sub$arc_length<-log(df_sub$arc_length) ## Log transform arclength because right skew
+df_sub$c_score<- log(df_sub$c_score/(1-df_sub$c_score)) ## Logit transform c_score to make it more amenable to linear modeling
+
+
+
+####Some preliminary Data vis
+
+### Group by part category and get grand averages to plot
+label_means<-df_sub%>%group_by(label)%>%summarize(mean_arc_length= mean(arc_length), mean_c_score= mean(c_score))
+
+### Group by both condition and category and get grand averages to plot
+label_cond_means<- df_sub%>%group_by(label,condition)%>%summarize(mean_arc_length= mean(arc_length), mean_c_score= mean(c_score))
+
+
+ggplot(data = df_sub, aes(x= arc_length, y = c_score, color = label))+ geom_point() + xlab('log arc length') +ylab('transformed c_score')
+ggplot(data = label_cond_means, aes(x= mean_arc_length, y = mean_c_score, color = label,shape=condition))+ geom_point( size = 3) + xlab('mean log arc length') +ylab('mean logit transformed c_score')
+
+
+```
+
+
+```{r}
+
+### Fit nested set of mixed linear models where target 
+
+m1<- lmer(formula= c_score~arc_length + (1|target), data= df_sub)
+m2<- lmer(formula= c_score~arc_length + factor(label)+ (1|target), data= df_sub)
+m3<- lmer(formula= c_score~arc_length*factor(label)+ (1|target), data= df_sub)
+m4<- lmer(formula= c_score~arc_length*factor(label)+ factor(condition) + (1|target) , data= df_sub)
+m5<- lmer(formula= c_score~arc_length*factor(label)*factor(condition)+(1|target) , data= df_sub)
+models<- c(m1,m2,m3,m4,m5)
+
+anova(m1,m2,m3,m4,m5)
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(jtools)
+
+effect_plot(m1, pred = arc_length, interval = TRUE, int.type ='confidence',data = df_sub)  + geom_point(data= df_sub, aes(color=label), alpha =.3) 
+effect_plot(m2, pred = arc_length, interval = TRUE, int.type ='confidence',data = df_sub)  + geom_point(data= df_sub, aes(color=label), alpha =.3) 
+effect_plot(m3, pred = arc_length, interval = TRUE, int.type ='confidence',data = df_sub)  + geom_point(data= df_sub, aes(color=label), alpha =.3) 
+effect_plot(m4, pred = arc_length, interval = TRUE, int.type ='confidence',data = df_sub)  + geom_point(data= df_sub, aes(color=label), alpha =.3) 
+effect_plot(m5, pred = arc_length, interval = TRUE, int.type ='confidence',data = df_sub)  + geom_point(data= df_sub, aes(color=label), alpha =.3) 
+
+
+
+
+ggplot(data=df_sub,aes(x=arc_length, y = preds, color=label))+geom_point() 
+
+lm5
+
+```
+
+
+```{r}
+coef.tbl <- function(fm){
+     cc <- fixef(fm)
+     ss <- sqrt(diag(vcov(fm)))
+     data.frame(Estimate = cc, Std.Err = ss, t = cc/ss, row.names = names(cc))
+}
+
+m1_coefs<- coef.tbl(m1)
+m2_coefs<- coef.tbl(m2)
+m3_coefs<- coef.tbl(m3)
+m4_coefs<- coef.tbl(m4)
+m5_coefs<- coef.tbl(m5)
+
+
+iter_parts<- c('backrest','leg','seat','unknown')
+
+
+```
+
+
+```{r}
+theme_set(theme_classic(base_size = 15))
+m1_coefs
+ggplot(data=df_sub, aes(x=arc_length, y=c_score, color=label, fill = condition))+ geom_point(shape=21, alpha = 0.7) + geom_abline(data= m1_coefs, aes(intercept = m1_coefs[1,]$Estimate, slope = m1_coefs[2,]$Estimate) ) + xlab('log arc length') +ylab('logit transformed classifiability score')+scale_fill_manual(values = c('white', 'black'))+ggtitle('Model 1')
+
+
+```
+
+```{r}
+m2_coefs
+params={}
+base <- m2_coefs[c('(Intercept)','arc_length'),]
+base_params<-c('armrest',base[1,]$Estimate,base[2,]$Estimate)
+#  temp = data.frame()
+for(j in iter_parts){
+temp = data.frame()
+  for(i in rownames(m2_coefs)){
+if(grepl(j,i)){
+  temp = rbind(temp,(m2_coefs[i,]))
+  
+}
+this_params<- c(j,base[1,]$Estimate + temp[1,]$Estimate,base[2,]$Estimate)
+
+
+ 
+  }
+params<-rbind(params,this_params)
+
+
+
+}
+params<- rbind(base_params, params)
+  
+  
+  
+params
+params<- data.frame(params)
+colnames(params)<-  c('label','intercept','slope')
+params$intercept<- unfactor(params$intercept)
+params$slope<- unfactor(params$slope)
+
+ggplot(data=df_sub, aes(x=arc_length, y=c_score, color=label, fill= condition))+ geom_point(shape=21, alpha=0.7) + geom_abline(data= params, aes(intercept = intercept, slope = slope, color =label) ) + xlab('log arc length') +ylab('logit transformed classifiability score')+scale_fill_manual(values = c('white', 'black'))+ggtitle('Model 2')
+
+
+
+```
+```{r}
+m3_coefs
+params={}
+base <- m3_coefs[c('(Intercept)','arc_length'),]
+base_params<-c('armrest',base[1,]$Estimate,base[2,]$Estimate)
+for(j in iter_parts){
+temp = data.frame()
+  for(i in rownames(m3_coefs)){
+if(grepl(j,i)){
+  temp = rbind(temp,(m3_coefs[i,]))
+  
+}
+this_params<- c(j,base[1,]$Estimate + temp[1,]$Estimate,base[2,]$Estimate+temp[2,]$Estimate)
+
+
+ 
+  }
+params<-rbind(params,this_params)
+
+
+
+}
+
+
+
+
+params
+params<- data.frame(params)
+colnames(params)<-  c('label','intercept','slope')
+params$intercept<- unfactor(params$intercept)
+params$slope<- unfactor(params$slope)
+
+ggplot(data=df_sub, aes(x=arc_length, y=c_score, color=label, fill= condition))+ geom_point(shape=21, alpha=0.7) + geom_abline(data= params, aes(intercept = intercept, slope = slope, color =label) )+ xlab('log arc length') +ylab('logit transformed classifiability score')+scale_fill_manual(values = c('white', 'black')) +ggtitle('Model 3')
+
+
+
+```
+
+
+
+
+```{r}
+m4_coefs
+params={}
+base <- m4_coefs[c('(Intercept)','factor(condition)further','arc_length'),]
+base
+base_params_closer<-c('armrest','closer',base[1,]$Estimate,base[3,]$Estimate)
+base_params_further<-c('armrest','further',base[1,]$Estimate+base[2,]$Estimate,base[3,]$Estimate)
+params<- rbind(params,base_params_closer, base_params_further)
+for(j in iter_parts){
+temp = data.frame()
+  for(i in rownames(m4_coefs)){
+if(grepl(j,i)){
+  temp = rbind(temp,(m4_coefs[i,]))
+  
+}
+close_params<- c(j,'closer',base[1,]$Estimate + temp[1,]$Estimate,base[2,]$Estimate+temp[2,]$Estimate)
+far_params<- c(j,'further',base[1,]$Estimate + temp[1,]$Estimate + base[2,]$Estimate,base[3,]$Estimate+temp[2,]$Estimate)
+
+ 
+  }
+params<-rbind(params,close_params, far_params)
+
+
+
+}
+
+
+
+params
+params<- data.frame(params)
+colnames(params)<-  c('label','condition','intercept','slope')
+params$intercept<- unfactor(params$intercept)
+params$slope<- unfactor(params$slope)
+
+ggplot(data=df_sub, aes(x=arc_length, y=c_score, color=label, fill= condition))+ geom_point(shape=21, alpha=0.7) + geom_abline(data= params, aes(intercept = intercept, slope = slope, color =label, lty= condition) )+ xlab('log arc length') +ylab('logit transformed classifiability score')+scale_fill_manual(values = c('white', 'black'))+ggtitle('Model 4') 
+
+```
+
+
+```{r}
+m5_coefs
+params={}
+base <- m5_coefs[c('(Intercept)','factor(condition)further','arc_length','arc_length:factor(condition)further'),]
+base
+base_params_closer<-c('armrest','closer',base[1,]$Estimate,base[3,]$Estimate)
+base_params_further<-c('armrest','further',base[1,]$Estimate+base[2,]$Estimate,base[3,]$Estimate+base[4,]$Estimate)
+params<- rbind(params,base_params_closer, base_params_further)
+for(j in iter_parts){
+temp = data.frame()
+  for(i in rownames(m5_coefs)){
+if(grepl(j,i)){
+  temp = rbind(temp,(m5_coefs[i,]))
+  
+}
+close_params<- c(j,'closer',base[1,]$Estimate + temp[1,]$Estimate,base[3,]$Estimate+temp[2,]$Estimate)
+far_params<- c(j,'further',base[1,]$Estimate + temp[1,]$Estimate + base[2,]$Estimate + temp[3,]$Estimate,base[3,]$Estimate+temp[2,]$Estimate+ base[4,]$Estimate+temp[4,]$Estimate)
+
+ 
+  }
+params<-rbind(params,close_params, far_params)
+
+
+
+}
+
+params
+params<- data.frame(params)
+colnames(params)<-  c('label','condition','intercept','slope')
+params$intercept<- unfactor(params$intercept)
+params$slope<- unfactor(params$slope)
+
+ggplot(data=df_sub, aes(x=arc_length, y=c_score, color=label, fill = condition))+ geom_point(shape=21) + geom_abline(data= params, aes(intercept = intercept, slope = slope, color =label, lty= condition) ) + xlab('log arc length') +ylab('logit transformed classifiability score') +scale_fill_manual(values = c('white', 'black')) +ggtitle('Model 5')
+
+
+```
+
+```{r}
+summary(m5)
+
+ggplot(data= data.frame(fitted_values = fitted.values(m5),residuals= residuals(m5)), aes(x=fitted_values, y=residuals))+ geom_point(alpha=0.5, color='seagreen')
+
+```
+
+
+
+
+
+
+
+
