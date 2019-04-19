@@ -18,11 +18,11 @@ Contains analysis helpers as well as scripts for extracting VGG 19 features from
 
 Contains the annotated sketch data after filtering for sketches that were annotated 3 times + `*.png` data for the annotated sketches.
 
-### sketches
+#### sketches
 
 Contains `*.svg` and `*.png` files for all the chairs in our analysis dataset
 
-### notebooks
+#### notebooks
 
 Contains all our main analysis notebooks. There are 3 notebooks -
 `semantic_parts_dynanmics_part_feature.ipynb` - contains analysis scripts for thesis section: _*2.3.1.	Quantifying semantic structure in sketches*_
