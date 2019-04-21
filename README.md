@@ -6,6 +6,9 @@
 
 All python notebooks use Python 2.7
 
+If you are interested in viewing code for the sketch annotation tool, it can be found on - 
+https://github.com/cogtoolslab/semantic_parts/tree/master/experiments
+
 ### Folder Descriptions
 
 #### features 
